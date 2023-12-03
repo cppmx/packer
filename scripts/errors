@@ -1,0 +1,26 @@
+SUCCESS=0
+INVALID_ARGUMENT=1
+VARIABLE_NOT_FOUND=2
+FILE_NOT_FOUND=3
+RUNTIME_ERROR=4
+UNKNOWN_ERROR=255
+
+function local_test()
+{
+    echo "Probando la aplicación en la consola con el comando 'curl http://$1/'"
+
+    response_code=$(curl -s -o /dev/null -w "%{http_code}" http://$1/)
+
+    # Verificar el código de respuesta
+    if [ "$response_code" -eq 200 ]; then
+        echo "La solicitud HTTP fue exitosa."
+    else
+        echo "Hubo un problema al realizar la solicitud HTTP. Código de respuesta: $response_code"
+        exit $RUNTIME_ERROR
+    fi
+}
+
+if [ -z "$MAIN_SCRIPT" ] || [ "$MAIN_SCRIPT" != "ops" ]; then
+    echo "ERROR: Este script no puede ser invocado directamente"
+    exit $RUNTIME_ERROR
+fi

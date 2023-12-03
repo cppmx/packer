@@ -1,0 +1,158 @@
+#!/bin/bash
+
+MAIN_SCRIPT="ops"
+
+script_dir="$(dirname "$0")"
+
+for script_file in "$script_dir/scripts"/*.sh; do
+    if [ -f "$script_file" ]; then
+        # shellcheck source="$script_file"
+        source "$script_file"
+    fi
+done
+
+function help()
+{
+    echo -e "Script de automatización para generar imágenes para AWS y Azure usando packer."
+    echo -e "  Este script forma parte de la actividad 1 de la materia Herramientas de DevOps"
+    echo -e "  del segundo semestre de la maestría en Desarrollo y Operaciones de Software en UNIR."
+    echo -e "  Este script forma parte de la actividad 1 de la materia Herramientas de DevOps\n"
+    echo -e "Autor: Carlos Eduardo Colón Rangel\n"
+    echo -e "Uso:\n"
+    echo -e "$0 <comando> <servicio>\n"
+    echo -e "Comandos:"
+    echo -e "  -b|--build       Construir la imagen"
+    echo -e "  -h|--help        Muestra este menu de ayuda"
+    echo -e "  -p|--prepare     Preparar el servicio de la nube"
+    echo -e "  -s|--start       Iniciar una instancia"
+    echo -e "  -t|--terminate   Terminar la instancia"
+    echo -e "Servicios:"
+    echo -e "  aws              Servicio de AWS"
+    echo -e "  azure            Servicio de Microsoft Azure"
+    echo
+    echo -e "Códigos de salida:"
+    echo -e "  0      El script se ha ejecutado con éxito"
+    echo -e "  1      Hay un error con los argumentos que se le pasaron al script"
+    echo -e "  2      Alguna variable de ambiente necesaria para este script no está definida"
+    echo -e "  3      No se encontró un archivo"
+    echo -e "  4      Hubo un error durante la ejecución de algúno de los comandos"
+    echo -e "  255    Hubo un error desconocido"
+}
+
+function build_image()
+{
+    local PACKER_CMD
+    local LOG_FILE="logs/${1}.log"
+    PACKER_CMD=$(which packer)
+
+    echo "Formatenado las plantillas HCL ..."
+    $PACKER_CMD fmt .
+
+    if [ $? -ne 0 ]; then
+        echo "Packer template configurations are not valid"
+        exit $RUNTIME_ERROR
+    fi
+
+    echo "Validando las plantillas HCL ..."
+    $PACKER_CMD validate .
+
+    if [ $? -ne 0 ]; then
+        echo "Packer template configurations are not valid"
+        exit $RUNTIME_ERROR
+    fi
+
+    echo "Iniciando la construcción de la imagen, este proceso puede tardar varios minutos, por favor se paciente."
+    output=$(time $PACKER_CMD build -only="$1" . > $LOG_FILE 2>&1)
+
+    # Extraer el valor de 'real' usando awk
+    real_time=$(echo "$output" | awk '/real/ {print $2}')
+
+    # Formatear el mensaje
+    echo "La compilación tardó $real_time"
+    echo -e "Los logs de la construcción de la imagen se pueden consultar en el archivo $LOG_FILE"
+
+    if [ $? -ne 0 ]; then
+        echo "Hubo errores durante la compilación de la imagen, revisa el archivo de logs $LOG_FILE."
+        exit $RUNTIME_ERROR
+    else
+        echo -e "\nLa construcción de la imegnfue exitosa."
+        
+    fi
+}
+
+COMMAND=
+SERVICE=
+
+case "$1" in
+    -h|--help)
+        help
+        exit 0
+    ;;
+    -b|--build)
+        COMMAND=1
+        SERVICE="$2"
+        shift 2
+    ;;
+    -p|--prepare)
+        COMMAND=2
+        SERVICE="$2"
+        shift 2
+    ;;
+    -s|--start)
+        COMMAND=3
+        SERVICE="$2"
+        shift 2
+    ;;
+    -t|--terminate)
+        COMMAND=4
+        SERVICE="$2"
+        shift 2
+    ;;
+    *)
+        echo "ERROR: Comando inválido"
+        help
+        exit $UNKNOWN_ERROR
+    ;;
+esac
+
+# Verificar que SERVICE sea una opción válida
+if [ "$SERVICE" != "aws" ] && [ "$SERVICE" != "azure" ]; then
+    echo "ERROR: Servicio inválido"
+    help
+    exit $INVALID_ARGUMENT
+fi
+
+if [ $COMMAND -eq 1 ]; then
+    echo "Building $SERVICE image ..."
+
+    if [ "$SERVICE" == "aws" ]; then
+        build_image actividad1.amazon-ebs.ubuntu
+    else
+        build_image actividad1.azure-arm.ubuntu
+    fi
+elif [ $COMMAND -eq 2 ]; then
+    echo "Preparing $SERVICE cloud service ..."
+
+    if [ "$SERVICE" == "aws" ]; then
+        create_keys
+        create_security_group
+    else
+        prepare_azure
+    fi
+elif [ $COMMAND -eq 3 ]; then
+    echo "Staring $SERVICE instance ..."
+
+    if [ "$SERVICE" == "aws" ]; then
+        start_ec2_instance
+    else
+        start_vm_instance
+    fi
+elif [ $COMMAND -eq 4 ]; then
+    echo "Finishing $SERVICE instance ..."
+
+    if [ "$SERVICE" == "aws" ]; then
+        terminate_ec2_instance
+    else
+        delete_azure_vm
+    fi
+fi
